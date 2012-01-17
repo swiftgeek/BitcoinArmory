@@ -100,7 +100,8 @@ public:
    BinaryDataRef serializeRef(void) { return            self_;  }
 
    /////////////////////////////////////////////////////////////////////////////
-   BinaryData    serializeWholeBlock(bool withLead8Bytes=true) const;
+   BinaryData    serializeWholeBlock(BinaryData const & magic, 
+                                     bool withLead8Bytes=true) const;
 
    /////////////////////////////////////////////////////////////////////////////
    void unserialize(uint8_t const * ptr);
@@ -349,6 +350,11 @@ public:
    bool               isMainBranch(void)  const { return isMainBranch_; }
    uint64_t           getTxStartByte(void) { return fileByteLoc_; }
    void               setTxStartByte(uint64_t b) { fileByteLoc_ = b; }
+
+   uint32_t           getTxInOffset(uint32_t i) const  { return offsetsTxIn_[i]; }
+   uint32_t           getTxOutOffset(uint32_t i) const { return offsetsTxOut_[i]; }
+
+   TxRef              createFromStr(BinaryData const & bd) {return TxRef(bd);}
 
    Tx              getCopy(void) const;
    BlockHeaderRef* getHeaderPtr(void)  const { return headerPtr_; }

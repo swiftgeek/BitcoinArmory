@@ -1,6 +1,6 @@
-from btcarmoryengine import *
+from armoryengine import *
 import CppBlockUtils as Cpp
-import btcarmoryengine 
+import armoryengine 
 
 LE = LITTLEENDIAN
 BE = BIGENDIAN
@@ -12,15 +12,15 @@ Test_CppBlockUtils    = False
 Test_SimpleAddress    = False
 Test_MultiSigTx       = False
 Test_TxSimpleCreate   = False
-Test_EncryptedAddress = True
-Test_EncryptedWallet  = True
+Test_EncryptedAddress = False
+Test_EncryptedWallet  = False
 Test_TxDistProposals  = False
 Test_SelectCoins      = False
-Test_CryptoTiming     = False
+Test_CryptoTiming     = True
 
 Test_NetworkObjects   = False
 Test_ReactorLoop      = False
-Test_SettingsFile     = True
+Test_SettingsFile     = False
 
 '''
 import optparse
@@ -40,7 +40,7 @@ def testFunction( fnName, expectedOutput, *args, **kwargs):
    Provide a function name, inputs and some known outputs
    Prints a pass/fail string if the outputs match
    """
-   fn = getattr(btcarmoryengine, fnName)
+   fn = getattr(armoryengine, fnName)
    actualOutput = fn(*args,**kwargs)
    testPassed = (expectedOutput == actualOutput)
    passStr = '____PASS____' if testPassed else '***FAIL***'
@@ -61,6 +61,35 @@ def printpassorfail(abool):
    else:
       print '\n' + ' '*w + '___ FAILED ___',
 
+
+#binTx = hex_to_binary('010000000158e7e1c2414ac51b3a6fd24bd5df2ccebf09db5fa5803f124ae8e65c05b50fb2010000008c4930460221001332f6fecbd40e0ac6ca570468863b1ce7b8061e82fab8d6eaa3810b75a4588c022100102ded6875cb317464f8d6af40337a0932cbb350aec5f3290d02209d1a46324c0141047737e67302d8a47e496bd5030b14964c9330e3be73f9fd90edc405064149c17eaffaaa71488853e60365487fc7bf281635bda43d7763764ecce91edcf2ca02aeffffffff048058840c000000001976a91457ac7bfb77b1f678043ac6ea0fa67b4686c271e588ac80969800000000001976a914b11bdcd6371e5b567b439cd95d928e869d1f546a88ac80778e06000000001976a914b11bdcd6371e5b567b439cd95d928e869d1f546a88ac70032d00000000001976a914b11bdcd6371e5b567b439cd95d928e869d1f546a88ac00000000')
+
+#tx = PyTx().unserialize(binTx)
+#tx.pprint()
+
+
+#print 'Wallet Info'
+#wlt = PyBtcWallet().readWalletFile('/home/alan/.armory/testnet/armory_2zftxAA7Q_.wallet')
+#wlt.pprint('    ')
+
+#le = wlt.cppWallet.getWalletLedgerEntryForTx(binTx)
+#le.pprint()
+
+#les = wlt.cppWallet.getAddrLedgerEntriesForTx(binTx)
+#for le in les:
+   #le.pprint()
+
+#print 'Inputs:'
+#for i in tx.inputs:
+   #a,b = TxInScriptExtractKeyAddr(i)
+   #print '   ',a, binary_to_hex(addrStr_to_hash160(a))
+
+#print 'Outputs:'
+#for o in tx.outputs:
+   #astr = TxOutScriptExtractAddrStr(o.binScript)
+   #print '   ',astr, binary_to_hex(addrStr_to_hash160(astr))
+
+#exit(0)
 
 
 
@@ -91,6 +120,11 @@ if Test_BasicUtils:
    testFunction('hex_to_int',    i,    hstr, BIGENDIAN)
    testFunction('int_to_binary', bstr, i   , 2, BIGENDIAN)
    testFunction('binary_to_int', i,    bstr, BIGENDIAN)
+
+   #h   = '00000123456789abcdef000000'
+   #ans = 'aaaaabcdeghjknrsuwxyaaaaaa'
+   #testFunction('binary_to_typingBase16', ans, h  )
+   #testFunction('typingBase16_to_binary', h,   ans)
    
    blockhead = '010000001d8f4ec0443e1f19f305e488c1085c95de7cc3fd25e0d2c5bb5d0000000000009762547903d36881a86751f3f5049e23050113f779735ef82734ebf0b4450081d8c8c84db3936a1a334b035b'
    blockhash   = '1195e67a7a6d0674bbd28ae096d602e1f038c8254b49dfe79d47000000000000'
@@ -147,6 +181,45 @@ if Test_BasicUtils:
    testFunction('getVersionInt',      verInt, verTuple)
    testFunction('readVersionString',  verTuple, verStr)
    testFunction('readVersionInt',     verTuple, verInt)
+
+   miniKey  = 'S4b3N3oGqDqR5jNuxEvDwf'
+   miniPriv = hex_to_binary('0c28fca386c7a227600b2fe50b7cae11ec86d3bf1fbe471be89827e19d72aa1d')
+   testFunction('decodeMiniPrivateKey', miniPriv, miniKey)
+
+   print 'Testing coin2str method'
+   def printC2S(c):
+      print str(c).rjust(16),
+      print coin2str(c).rjust(16),
+      print coin2str(c,4).rjust(16),
+      print coin2str(c,2).rjust(16),
+      print coin2str(c,0).rjust(16),
+      print coin2str(c,8, maxZeros=6).rjust(16),
+      print coin2str(c,8, maxZeros=2).rjust(16),
+      print coin2str(c,6, maxZeros=4).rjust(16),
+      print coin2str_approx(c,3)
+   printC2S(0)
+   printC2S(1)
+   printC2S(100)
+   printC2S(10000)
+   printC2S(10111)
+   printC2S(10000000)
+   printC2S(100000000)
+   printC2S(1241110000)
+   printC2S(10000099080)
+   printC2S(10000099000)
+   printC2S(10000909001)
+   printC2S(12345678900)
+   printC2S(98753178900)
+   printC2S(-1)
+   printC2S(-100)
+   printC2S(-10000)
+   printC2S(-10000000)
+   printC2S(-10000090000)
+   printC2S(-10000990000)
+   printC2S(-10009090001)
+   printC2S(-10001090000)
+   
+
 
 # Unserialize an reserialize
 tx1raw = hex_to_binary('01000000016290dce984203b6a5032e543e9e272d8bce934c7de4d15fa0fe44dd49ae4ece9010000008b48304502204f2fa458d439f957308bca264689aa175e3b7c5f78a901cb450ebd20936b2c500221008ea3883a5b80128e55c9c6070aa6264e1e0ce3d18b7cd7e85108ce3d18b7419a0141044202550a5a6d3bb81549c4a7803b1ad59cdbba4770439a4923624a8acfc7d34900beb54a24188f7f0a40689d905d4847cc7d6c8d808a457d833c2d44ef83f76bffffffff0242582c0a000000001976a914c1b4695d53b6ee57a28647ce63e45665df6762c288ac80d1f008000000001976a9140e0aec36fe2545fb31a41164fb6954adcd96b34288ac00000000')
@@ -212,6 +285,71 @@ if Test_PyBlockUtils:
    print ''
    print ''
    
+
+################################################################################
+################################################################################
+if Test_CppBlockUtils:
+
+   print '\n\nLoading Blockchain from:', BLK0001_PATH
+   BDM_LoadBlockchainFile(BLK0001_PATH)
+   print 'Done!'
+
+
+   print '\n\nCurrent Top Block is:', TheBDM.getTopBlockHeader().getBlockHeight()
+   TheBDM.getTopBlockHeader().pprint()
+
+
+   #print '\n\nChecking integrity of blockchain:'
+   #result = TheBDM.verifyBlkFileIntegrity()
+   #print 'Done!',
+   #if result==True:
+      #print 'No errors detected in the blk0001.dat file'
+   #else:
+      #print 'Integrity check failed!  Something is wrong with your blk0001.dat file.'
+
+   cppWlt = Cpp.BtcWallet()
+
+   if not USE_TESTNET:
+      cppWlt.addAddress_1_(hex_to_binary("604875c897a079f4db88e5d71145be2093cae194"))
+      cppWlt.addAddress_1_(hex_to_binary("8996182392d6f05e732410de4fc3fa273bac7ee6"))
+      cppWlt.addAddress_1_(hex_to_binary("b5e2331304bc6c541ffe81a66ab664159979125b"))
+      cppWlt.addAddress_1_(hex_to_binary("ebbfaaeedd97bc30df0d6887fd62021d768f5cb8"))
+      cppWlt.addAddress_1_(hex_to_binary("11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"))
+   else:
+      # Test-network addresses
+      cppWlt.addAddress_1_(hex_to_binary("5aa2b7e93537198ef969ad5fb63bea5e098ab0cc"))
+      cppWlt.addAddress_1_(hex_to_binary("28b2eb2dc53cd15ab3dc6abf6c8ea3978523f948"))
+      cppWlt.addAddress_1_(hex_to_binary("720fbde315f371f62c158b7353b3629e7fb071a8"))
+      cppWlt.addAddress_1_(hex_to_binary("0cc51a562976a075b984c7215968d41af43be98f"))
+      cppWlt.addAddress_1_(hex_to_binary("57ac7bfb77b1f678043ac6ea0fa67b4686c271e5"))
+      cppWlt.addAddress_1_(hex_to_binary("b11bdcd6371e5b567b439cd95d928e869d1f546a"))
+      cppWlt.addAddress_1_(hex_to_binary("2bb0974f6d43e3baa03d82610aac2b6ed017967d"))
+      cppWlt.addAddress_1_(hex_to_binary("61d62799e52bc8ee514976a19d67478f25df2bb1"))
+
+   # We do the scan three times to make sure that there are no problems
+   # with rescanning the same tx's multiple times (it's bound to happen 
+   # so might as well make sure it's robust)
+   TheBDM.scanBlockchainForTx(cppWlt)
+   TheBDM.scanBlockchainForTx(cppWlt)
+   TheBDM.scanBlockchainForTx(cppWlt)
+
+   nAddr = cppWlt.getNumAddr()
+   print 'Address Balances:'
+   for i in range(nAddr):
+      cppAddr = cppWlt.getAddrByIndex(i)
+      bal = cppAddr.getBalance()
+      print '   %s %s' % (hash160_to_addrStr(cppAddr.getAddrStr20())[:12], coin2str(bal))
+
+   leVect = cppWlt.getTxLedger()
+   print '\n\nLedger for all Addr:'
+   for le in leVect:
+      pprintLedgerEntry(le, ' '*3)
+   
+
+
+   #TestNonStd
+   # Not sure what happened to this test...
+   #bdm.findAllNonStdTx();
 
 
 ################################################################################
@@ -403,7 +541,7 @@ if Test_NetworkObjects:
    
       # On handshake complete, do nothing special, but we do want to tell it to
       # restart the connection
-      btcNetFactory = BitcoinArmoryClientFactory( \
+      btcNetFactory = ArmoryClientFactory( \
                                     def_handshake=None, \
                                     func_loseConnect=restartConnection)
    
@@ -428,7 +566,7 @@ if Test_TxSimpleCreate:
    txinA.sequence  = hex_to_binary('ff'*4)
    
    txoutA = PyTxOut()
-   txoutA.value = 50 * (10**8)
+   txoutA.value = 50 * ONE_BTC
    txoutA.binScript = '\x76\xa9\x14' + AddrA.getAddr160() + '\x88\xac'
 
    tx1 = PyTx()
@@ -865,16 +1003,21 @@ if Test_EncryptedWallet:
    print '*********************************************************************'
    print ''
 
-   debugPrint = False
+   debugPrint = True
    debugPrintAlot = False
 
    # Remove wallet files, need fresh dir for this test
    
    shortlabel = 'TestWallet1'
-   fileA    = '/home/alan/.bitcoinarmory/ArmoryWallet_%s_31cFUs_.bin' % shortlabel
-   fileB    = '/home/alan/.bitcoinarmory/ArmoryWallet_%s_31cFUs_backup.bin' % shortlabel
-   fileAupd = '/home/alan/.bitcoinarmory/ArmoryWallet_%s_31cFUs_backup_unsuccessful.bin' % shortlabel
-   fileBupd = '/home/alan/.bitcoinarmory/ArmoryWallet_%s_31cFUs_update_unsuccessful.bin' % shortlabel
+   wltID = '6Q168oJ7'
+   if USE_TESTNET:
+      wltID = '3VB8XSoY'
+      
+   fileA    = os.path.join(ARMORY_HOME_DIR, 'armory_%s_.wallet' % wltID)
+   fileB    = os.path.join(ARMORY_HOME_DIR, 'armory_%s_backup.wallet' % wltID)
+   fileAupd = os.path.join(ARMORY_HOME_DIR, 'armory_%s_backup_unsuccessful.wallet' % wltID)
+   fileBupd = os.path.join(ARMORY_HOME_DIR, 'armory_%s_update_unsuccessful.wallet' % wltID)
+
    for f in (fileA, fileB, fileAupd, fileBupd):
       print 'Removing file:', f, 
       if os.path.exists(f):
@@ -896,13 +1039,17 @@ if Test_EncryptedWallet:
                                        chaincode=chainstr,   \
                                        IV=theIV, \
                                        shortLabel=shortlabel)
+   wlt.addrPoolSize = 5
+   wlt.detectHighestUsedIndex(True)
 
    print 'New wallet is at:', wlt.getWalletPath()
    wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
 
+
+
    #############################################################################
    print '\n(1) Getting a new address:'
-   newAddr = wlt.getNewAddress()
+   newAddr = wlt.getNextUnusedAddress()
    wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
 
    print '\n(1) Re-reading wallet from file, compare the two wallets'
@@ -919,6 +1066,60 @@ if Test_EncryptedWallet:
    wlt2 = PyBtcWallet().readWalletFile(wlt.walletPath)
    wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
    printpassorfail(wlt.isEqualTo(wlt2, debug=debugPrintAlot))
+
+   print '\n(2a)Testing deleteImportedAddress'
+   print '\nWallet size before delete:',  os.path.getsize(wlt.walletPath)
+   print '\n#Addresses before delete:', len(wlt.linearAddr160List)
+   toDelete160 = convertKeyDataToAddress(privKey2)
+   wlt.deleteImportedAddress(toDelete160)
+   print '\nWallet size after delete:',  os.path.getsize(wlt.walletPath)
+   print '\n(2a) #Addresses after delete:', len(wlt.linearAddr160List)
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(2a) Reimporting address for remaining tests'
+   print '\nWallet size before reimport:',  os.path.getsize(wlt.walletPath)
+   wlt.importExternalAddressData(privKey=privKey2)
+   print '\nWallet size after  reimport:',  os.path.getsize(wlt.walletPath)
+   wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+
+   print '\n(2b)Testing ENCRYPTED wallet import-address'
+   privKey3  = SecureBinaryData('\xbb'*32)
+   privKey4  = SecureBinaryData('\x44'*32)
+   chainstr2  = SecureBinaryData('\xdd'*32)
+   theIV2     = SecureBinaryData(hex_to_binary('66'*16))
+   passphrase2= SecureBinaryData('hello')
+   wltE = PyBtcWallet().createNewWallet(withEncrypt=True, \
+                                       plainRootKey=privKey3, \
+                                       securePassphrase=passphrase2, \
+                                       chaincode=chainstr2,   \
+                                       IV=theIV2, \
+                                       shortLabel=shortlabel)
+
+   try:
+      wltE.importExternalAddressData(privKey=privKey2)
+      wltE.pprint(indent=' '*5, allAddrInfo=debugPrint)
+      printpassorfail(False)
+      print 'FAILED!  We should have thrown an error about importing into a '
+      print '         locked wallet...'
+   except:
+      printpassorfail(True)
+
+
+   wltE.unlock(securePassphrase=passphrase2)
+   wltE.importExternalAddressData(privKey=privKey2)
+   wltE.pprint(indent=' '*5, allAddrInfo=debugPrint)
+
+   print '\n(2b) Re-reading wallet from file, compare the two wallets'
+   wlt2 = PyBtcWallet().readWalletFile(wltE.walletPath)
+   wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
+   printpassorfail(wltE.isEqualTo(wlt2, debug=debugPrintAlot))
+   
+
+   print '\n(2b) Unlocking wlt2 after re-reading locked-import-wallet'
+   wlt2.unlock(securePassphrase=passphrase2)
+
+
 
    #############################################################################
    # Now play with encrypted wallets
@@ -987,7 +1188,8 @@ if Test_EncryptedWallet:
    print '\n(5) Get new address from locked wallet'
    print 'Locking wallet'
    wlt.lock()
-   wlt.getNewAddress()
+   for i in range(10):
+      wlt.getNextUnusedAddress()
    wlt.pprint(indent=' '*5, allAddrInfo=debugPrint)
    
    print '\n(5) Re-reading wallet from file, compare the two wallets'
@@ -997,17 +1199,23 @@ if Test_EncryptedWallet:
 
    #############################################################################
    # !!!  #forkOnlineWallet()
-   # TODO:  FIGURE THIS PART OUT:  ONLINE FORKING DOESN"T QUITE WORK YET!
    print '\n(6)Testing forking encrypted wallet for online mode'
    wlt.forkOnlineWallet('OnlineVersionOfEncryptedWallet.bin')
    wlt2.readWalletFile('OnlineVersionOfEncryptedWallet.bin')
    wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
 
-   print '\n(6)Getting a new address from the online wallet'
-   newaddr = wlt2.getNewAddress()
-   print 'New address:', newaddr.getAddrStr()
-   newaddr = wlt2.getNewAddress()
-   print 'New address:', newaddr.getAddrStr()
+   print '\n(6)Getting a new addresses from both wallets'
+   for i in range(wlt.addrPoolSize*2):
+      wlt.getNextUnusedAddress()
+      wlt2.getNextUnusedAddress()
+
+   newaddr1 = wlt.getNextUnusedAddress()
+   print 'New address (reg):   ', newaddr1.getAddrStr()
+   newaddr2 = wlt2.getNextUnusedAddress()
+   print 'New address (online):', newaddr2.getAddrStr()
+
+   printpassorfail(newaddr1.getAddr160() == newaddr2.getAddr160())
+
    wlt2.pprint(indent=' '*5, allAddrInfo=debugPrint)
 
    print '\n(6) Re-reading wallet from file, compare the two wallets'
@@ -1055,13 +1263,13 @@ if Test_EncryptedWallet:
 
    try:
       wlt.interruptTest1 = True
-      wlt.getNewAddress()
+      wlt.getNextUnusedAddress()
    except InterruptTestError:
       print 'Interrupted!'
       pass
    wlt.interruptTest1 = False
 
-   print '\n(8a)Interrupted getNewAddress on primary file update'
+   print '\n(8a)Interrupted getNextUnusedAddress on primary file update'
    printstat()
    print '\n(8a)Do consistency check on the wallet'
    wlt.doWalletFileConsistencyCheck()
@@ -1073,13 +1281,13 @@ if Test_EncryptedWallet:
 
    try:
       wlt.interruptTest2 = True
-      wlt.getNewAddress()
+      wlt.getNextUnusedAddress()
    except InterruptTestError:
       print 'Interrupted!'
       pass
    wlt.interruptTest2 = False
 
-   print '\n(8b)Interrupted getNewAddress on between primary/backup update'
+   print '\n(8b)Interrupted getNextUnusedAddress on between primary/backup update'
    printstat()
    print '\n(8b)Do consistency check on the wallet'
    wlt.doWalletFileConsistencyCheck()
@@ -1093,13 +1301,13 @@ if Test_EncryptedWallet:
 
    try:
       wlt.interruptTest3 = True
-      wlt.getNewAddress()
+      wlt.getNextUnusedAddress()
    except InterruptTestError:
       print 'Interrupted!'
       pass
    wlt.interruptTest3 = False
 
-   print '\n(8c)Interrupted getNewAddress on backup file update'
+   print '\n(8c)Interrupted getNextUnusedAddress on backup file update'
    printstat()
    print '\n(8c)Do consistency check on the wallet'
    wlt.doWalletFileConsistencyCheck()
@@ -1197,12 +1405,7 @@ if Test_EncryptedWallet:
    printpassorfail(c3==comment3)
    printpassorfail(c2==comment2)
 
-   exit(0)
    
-
-   print '\n(10) Reading back comment for this address'
-   print '\n' + hash160_to_addrStr(newAddr20)
-   print '\nComment:', wlt.getCommentForAddress(newAddr20)
 
    #############################################################################
    print '\n\n'
@@ -1304,6 +1507,11 @@ if Test_EncryptedWallet:
       if debugPrint: txdp.pytxObj.pprint()
       print '\n\n(11) Attempting to sign TxDP with online wallet'
       wlt2.signTxDistProposal(txdp)
+
+   os.remove('OnlineVersionOfEncryptedWallet.bin')
+   os.remove('OnlineVersionOfEncryptedWalletbackup.bin')
+
+
 
 
 ################################################################################
@@ -1545,7 +1753,9 @@ if Test_SettingsFile:
    print '*********************************************************************'
    print ''
    
-   settings = SettingsFile()
+   testFile1 = 'settingsFile1.txt'
+   testFile2 = 'settingsFile2.txt'
+   settings = SettingsFile(testFile1)
    settings.set('TestKey1', 32) 
    settings.set('TestKey2', 12.3) 
    settings.set('TestKey3', 'hello settings file')
@@ -1553,28 +1763,35 @@ if Test_SettingsFile:
    settings.set('TestKey5', [1,2,3])
    settings.set('Test Key 6', 12)
    settings.set('Test Key 7', ['str1', 'str2'])
+   settings.set('TestKey8', False)
+   settings.set('TestKey9', True)
+   settings.set('TestKey10', [True, True, False])
 
    
-   for key in ('TestKey1', 'TestKey2', 'TestKey3', 'TestKey4', 'TestKey5', \
-                                 'Test Key 6', 'Test Key 7', 'Test Key DNE'):
-      print key.ljust(15,' '), settings.get(key) 
-
    settings.pprint()
 
-   testFile1 = 'settingsFile1.txt'
-   testFile2 = 'settingsFile2.txt'
-   
-   print 'Writing settings file'
-   settings.writeSettingsFile(testFile1)
+   settings.extend('TestKey2', 1.1)
+   settings.extend('TestKey4', 6)
+   settings.extend('TestKey11', 'astring')
+   settings.extend('TestKey12', 83)
+
    print 'Reading in'
    newSettings = SettingsFile(testFile1)
    newSettings.pprint()
+
+   print 'Expect list:'
+   print '   ',settings.get('Test Key 6')
+   print '   ',settings.get('Test Key 6', expectList=True)
+   print '   ',settings.get('Test Key 7', expectList=False)
+   print '   ',settings.get('Test Key 7', expectList=True)
+
    print 'Writing new settings file'
    newSettings.writeSettingsFile(testFile2)
 
-   f1 = open(testFile1, 'r').read()
-   f2 = open(testFile2, 'r').read()
-   printpassorfail(f1==f2)
+   with  open(testFile1, 'r') as f:
+      f1 = f.read()
+   with open(testFile2, 'r') as f:
+      f2 = f.read()
 
    os.remove(testFile1)
    os.remove(testFile2)

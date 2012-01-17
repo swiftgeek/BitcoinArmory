@@ -185,11 +185,14 @@ public:
    bool                isSentToSelf(void) const { return isSentToSelf_;  }
    bool                isChangeBack(void) const { return isChangeBack_;  }
 
+   void setAddr20(BinaryData const & bd) { addr20_.copyFrom(bd); }
    void setValid(bool b=true) { isValid_ = b; }
    void changeBlkNum(uint32_t newHgt) {blockNum_ = newHgt; }
       
    bool operator<(LedgerEntry const & le2) const;
    bool operator==(LedgerEntry const & le2) const;
+
+   void pprint(void);
 
 private:
    
@@ -219,6 +222,7 @@ private:
 class BtcAddress
 {
 public:
+
    BtcAddress(void) : 
       address20_(0), firstBlockNum_(0), firstTimestamp_(0), 
       lastBlockNum_(0), lastTimestamp_(0), 
@@ -250,7 +254,7 @@ public:
    void     sortLedger(void);
    uint32_t removeInvalidEntries(void);
 
-   uint64_t getBalance(void);
+   uint64_t getBalance(set<OutPoint> const * lockedList=NULL);
 
    vector<LedgerEntry> & getTxLedger(void) { return ledger_;           }
    vector<TxIOPair*> &   getTxIOList(void) { return relevantTxIOPtrs_; }
@@ -321,6 +325,10 @@ public:
                      uint32_t blktime = UINT32_MAX,
                      uint32_t blknum = UINT32_MAX);
 
+   vector<LedgerEntry>  getLedgerEntriesForZeroConfTxList( vector<TxRef*> zcList);
+   LedgerEntry          getWalletLedgerEntryForTx(BinaryData const & zcBin);
+   vector<LedgerEntry>  getAddrLedgerEntriesForTx(BinaryData const & zcBin);
+
    void       scanNonStdTx(uint32_t blknum, 
                            uint32_t txidx, 
                            TxRef&   txref,
@@ -354,8 +362,20 @@ public:
    // If we have spent TxOuts but the tx haven't made it into the blockchain
    // we need to lock them to make sure we have a record of which ones are 
    // available to sign more Txs
-   void   lockTxOut(OutPoint op) {lockedTxOuts_.insert(op);}
-   void unlockTxOut(OutPoint op) {lockedTxOuts_.erase( op);}
+   void   lockTxOut(OutPoint const & op);
+   void unlockTxOut(OutPoint const & op);
+   void clearLocked(void)        {lockedTxOuts_.clear();   }
+
+   void   lockTxOutSwig(BinaryData const & hash, uint32_t idx);
+   void unlockTxOutSwig(BinaryData const & hash, uint32_t idx);
+
+   bool isTxOutLocked(OutPoint const & op);
+   vector<OutPoint> getLockedTxOutList(void);
+
+   bool isOutPointMine(BinaryData const & hsh, uint32_t idx);
+
+   // This really shouldn't ever be used except for the zero-conf ops  
+   void makeTempCopyForZcScan(BtcWallet & tempWlt);
 
 private:
    vector<BtcAddress*>          addrPtrVect_;
@@ -367,7 +387,7 @@ private:
    set<OutPoint>                unspentOutPoints_;
    set<OutPoint>                lockedTxOuts_;
    set<OutPoint>                orphanTxIns_;
-   vector<TxRef*>               txrefList_;      // aggregation of all relevant Tx
+   set<TxRef*>                  txrefSet_;      // aggregation of all relevant Tx
 
    // For non-std transactions
    map<OutPoint, TxIOPair>      nonStdTxioMap_;
@@ -466,11 +486,21 @@ private:
    // else is just references and pointers to this data
    string                             blkfilePath_;
    BinaryData                         blockchainData_ALL_;
-   list<BinaryData>                   blockchainData_NEW_; // to be added
+   list<BinaryData>                   blockchainData_NEW_; 
    map<HashString, BlockHeaderRef>    headerHashMap_;
-   map<HashString, TxRef >            txHashMap_;
+   map<HashString, TxRef>             txHashMap_;
 
-   // This may have to be updated later if the blkfile exceeds 4GB
+   // Need a separate memory pool just for zero-confirmation transactions
+   // We need the second map to make sure we can find the data to remove
+   // it, when necessary
+   list<BinaryData>                   zeroConfTxList_;
+   map<HashString, TxRef>             zeroConfTxRefMap_;
+   map<HashString, 
+         list<BinaryData>::iterator>  zeroConfIterMap_;
+   bool                               zcEnabled_;
+   string                             zcFilename_;
+
+   // This is for detecting external changes made to the blk0001.dat file
    uint64_t                           lastEOFByteLoc_;
    uint64_t                           totalBlockchainBytes_;
 
@@ -507,6 +537,12 @@ private:
    bool isInitialized_;
 
 
+   // These will be set for the specific network we are testing
+   BinaryData GenesisHash_;
+   BinaryData GenesisTxHash_;
+   BinaryData MagicBytes_;
+
+
 private:
    // Set the constructor to private so that only one can ever be created
    BlockDataManager_FullRAM(void);
@@ -515,6 +551,10 @@ public:
 
    static BlockDataManager_FullRAM & GetInstance(void);
    bool isInitialized(void) { return isInitialized_;}
+   void SetBtcNetworkParams( BinaryData const & GenHash,
+                             BinaryData const & GenTxHash,
+                             BinaryData const & MagicBytes);
+   void SelectNetwork(string netName);
 
    /////////////////////////////////////////////////////////////////////////////
    void Reset(void);
@@ -557,8 +597,12 @@ public:
    vector<BinaryData>      prefixSearchAddress(BinaryData const & searchStr);
 
    // Traverse the blockchain and update the wallet[s] with the relevant Tx data
-   void scanBlockchainForTx_FromScratch(BtcWallet & myWallet);
-   void scanBlockchainForTx_FromScratch(vector<BtcWallet*> walletVect);
+   void scanBlockchainForTx(BtcWallet & myWallet,
+                            uint32_t startBlknum=0,
+                            uint32_t endBlknum=0xffffffff);
+   void scanBlockchainForTx(vector<BtcWallet*> walletVect,
+                            uint32_t startBlknum=0,
+                            uint32_t endBlknum=0xffffffff);
  
    // This is extremely slow and RAM-hungry, but may be useful on occasion
    uint32_t       readBlkFile_FromScratch(string filename, bool doOrganize=true);

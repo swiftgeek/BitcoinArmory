@@ -42,9 +42,12 @@ void printTestHeader(string TestName)
 
 int main(void)
 {
+   BlockDataManager_FullRAM::GetInstance().SelectNetwork("Test");
+   
 
-   string blkfile("/home/alan/.bitcoin/blk0001.dat");
-   //string blkfile("C:/Documents and Settings/VBox/Application Data/Bitcoin/blk0001.dat");
+   //string blkfile("/home/alan/.bitcoin/blk0001.dat");
+   string blkfile("/home/alan/.bitcoin/testnet/blk0001.dat");
+   //string blkfile("C:/Documents and Settings/VBox/Application Data/Bitcoin/testnet/blk0001.dat");
 
    printTestHeader("Read-and-Organize-Blockchain");
    TestReadAndOrganizeChain(blkfile);
@@ -105,14 +108,14 @@ void TestReadAndOrganizeChain(string blkfile)
    /////////////////////////////////////////////////////////////////////////////
    // TESTNET has some 0.125-difficulty blocks which violates the assumption
    // that it never goes below 1.  So, need to comment this out for testnet
-#ifndef TEST_NETWORK
+   /*  For whatever reason, this doesn't work on testnet...
    cout << "Verify integrity of blockchain file (merkleroots leading zeros on headers)" << endl;
    TIMER_START("Verify blk0001.dat integrity");
    bool isVerified = bdm.verifyBlkFileIntegrity();
    TIMER_STOP("Verify blk0001.dat integrity");
    cout << "Done!   Your blkfile " << (isVerified ? "is good!" : " HAS ERRORS") << endl;
    cout << endl << endl;
-#endif
+   */
 }
 
 
@@ -143,17 +146,24 @@ void TestScanForWalletTx(string blkfile)
    myAddress.createFromHex("8996182392d6f05e732410de4fc3fa273bac7ee6"); wlt.addAddress(myAddress);
    myAddress.createFromHex("b5e2331304bc6c541ffe81a66ab664159979125b"); wlt.addAddress(myAddress);
    myAddress.createFromHex("ebbfaaeedd97bc30df0d6887fd62021d768f5cb8"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"); wlt.addAddress(myAddress);
 #else
    // Test-network addresses
-   myAddress.createFromHex("abda0c878dd7b4197daa9622d96704a606d2cd14"); wlt.addAddress(myAddress);
-   myAddress.createFromHex("11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"); wlt.addAddress(myAddress);
-   myAddress.createFromHex("baa72d8650baec634cdc439c1b84a982b2e596b2"); wlt.addAddress(myAddress);
-   myAddress.createFromHex("fc0ef58380e6d4bcb9599c5369ce82d0bc01a5c4"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("5aa2b7e93537198ef969ad5fb63bea5e098ab0cc"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("28b2eb2dc53cd15ab3dc6abf6c8ea3978523f948"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("720fbde315f371f62c158b7353b3629e7fb071a8"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("0cc51a562976a075b984c7215968d41af43be98f"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("57ac7bfb77b1f678043ac6ea0fa67b4686c271e5"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("b11bdcd6371e5b567b439cd95d928e869d1f546a"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("2bb0974f6d43e3baa03d82610aac2b6ed017967d"); wlt.addAddress(myAddress);
+   myAddress.createFromHex("61d62799e52bc8ee514976a19d67478f25df2bb1"); wlt.addAddress(myAddress);
 #endif
 
    myAddress.createFromHex("0e0aec36fe2545fb31a41164fb6954adcd96b342"); wlt.addAddress(myAddress);
 
-   TIMER_WRAP(bdm.scanBlockchainForTx_FromScratch(wlt));
+   TIMER_WRAP(bdm.scanBlockchainForTx(wlt));
+   TIMER_WRAP(bdm.scanBlockchainForTx(wlt));
+   TIMER_WRAP(bdm.scanBlockchainForTx(wlt));
    
    cout << "Checking balance of all addresses: " << wlt.getNumAddr() << " addrs" << endl;
    for(uint32_t i=0; i<wlt.getNumAddr(); i++)
@@ -190,6 +200,7 @@ void TestScanForWalletTx(string blkfile)
    }
 
 
+
    /////////////////////////////////////////////////////////////////////////////
    cout << "Test txout aggregation, with different prioritization schemes" << endl;
    BtcWallet myWallet;
@@ -209,7 +220,7 @@ void TestScanForWalletTx(string blkfile)
 #endif
 
    cout << "Rescanning the blockchain for new addresses." << endl;
-   bdm.scanBlockchainForTx_FromScratch(myWallet);
+   bdm.scanBlockchainForTx(myWallet);
 
    vector<UnspentTxOut> sortedUTOs = bdm.getUnspentTxOutsForWallet(myWallet, 1);
 
@@ -225,6 +236,39 @@ void TestScanForWalletTx(string blkfile)
            << sortedUTOs[j].getTxOutIndex() << endl;
    }
    cout << endl;
+
+
+   cout << "Testing scanning of zero-conf tx" << endl;
+   cout << "(This test only works on the testnet, using the snapshot of the blockchain in testnet_zctest)" << endl;
+   BtcWallet zcWlt;
+   //myAddress.createFromHex("720fbde315f371f62c158b7353b3629e7fb071a8"); zcWlt.addAddress(myAddress);
+   //myAddress.createFromHex("0cc51a562976a075b984c7215968d41af43be98f"); zcWlt.addAddress(myAddress);
+   //myAddress.createFromHex("57ac7bfb77b1f678043ac6ea0fa67b4686c271e5"); zcWlt.addAddress(myAddress);
+   //myAddress.createFromHex("b11bdcd6371e5b567b439cd95d928e869d1f546a"); zcWlt.addAddress(myAddress);
+   //myAddress.createFromHex("2bb0974f6d43e3baa03d82610aac2b6ed017967d"); zcWlt.addAddress(myAddress);
+   
+   myAddress.createFromHex("dbc51f25da9eaeaf201a2170e708276e70607352"); zcWlt.addAddress(myAddress);
+   myAddress.createFromHex("ba329bec1e6f2fccf5e337ce93773ec89cf6f9a0"); zcWlt.addAddress(myAddress);
+   myAddress.createFromHex("62a30712644ae99a8e6d8a5ffa5a0911112b4480"); zcWlt.addAddress(myAddress);
+   myAddress.createFromHex("374d0c87437216ddf6a5576b6af7073f4853df4f"); zcWlt.addAddress(myAddress);
+   myAddress.createFromHex("f2e6ca0bceef41b6a7f10b995de36fc8e2770865"); zcWlt.addAddress(myAddress);
+   myAddress.createFromHex("7166ed42fec99ae755524f0397c89b4ec934fd78"); zcWlt.addAddress(myAddress);
+
+   bdm.scanBlockchainForTx(zcWlt);
+
+   // Test the zero-conf ledger-entry detection
+   BinaryData txSelf = BinaryData::CreateFromHex("010000000158e7e1c2414ac51b3a6fd24bd5df2ccebf09db5fa5803f124ae8e65c05b50fb2010000008c4930460221001332f6fecbd40e0ac6ca570468863b1ce7b8061e82fab8d6eaa3810b75a4588c022100102ded6875cb317464f8d6af40337a0932cbb350aec5f3290d02209d1a46324c0141047737e67302d8a47e496bd5030b14964c9330e3be73f9fd90edc405064149c17eaffaaa71488853e60365487fc7bf281635bda43d7763764ecce91edcf2ca02aeffffffff048058840c000000001976a91457ac7bfb77b1f678043ac6ea0fa67b4686c271e588ac80969800000000001976a914b11bdcd6371e5b567b439cd95d928e869d1f546a88ac80778e06000000001976a914b11bdcd6371e5b567b439cd95d928e869d1f546a88ac70032d00000000001976a914b11bdcd6371e5b567b439cd95d928e869d1f546a88ac00000000");
+
+   LedgerEntry le = zcWlt.getWalletLedgerEntryForTx(txSelf);
+   le.pprint();
+
+   vector<LedgerEntry> levect = zcWlt.getAddrLedgerEntriesForTx(txSelf);
+   for(int i=0; i<levect.size(); i++)
+   {
+      levect[i].pprint();
+   }
+   
+
 }
 
 
@@ -282,7 +326,7 @@ void TestReorgBlockchain(string blkfile)
    //       to figure out what happened to this money they thought
    //       they had.
    cout << "Constructing address ledger for the to-be-invalidated chain:" << endl;
-   bdm.scanBlockchainForTx_FromScratch(wlt2);
+   bdm.scanBlockchainForTx(wlt2);
    vector<LedgerEntry> const & ledgerAll2 = wlt2.getTxLedger();
    for(uint32_t j=0; j<ledgerAll2.size(); j++)
    {  
@@ -338,7 +382,7 @@ void TestReorgBlockchain(string blkfile)
    if(result[ADD_BLOCK_CAUSED_REORG] == true)
    {
       cout << "Reorg happened after pushing block 5A" << endl;
-      bdm.scanBlockchainForTx_FromScratch(wlt2);
+      bdm.scanBlockchainForTx(wlt2);
       bdm.updateWalletAfterReorg(wlt2);
    }
 
@@ -730,8 +774,6 @@ void TestECDSA(void)
    cout << "   New pubKeyA:" << newBinPubA.getSliceCopy(0,30).toHexStr() << "..." << endl;
    cout << "   New pubKeyB:" << newBinPubB.getSliceCopy(0,30).toHexStr() << "..." << endl;
    cout << endl;
-
-   
 
 }
 

@@ -131,6 +131,20 @@ bool LedgerEntry::operator==(LedgerEntry const & le2) const
    return (blockNum_ == le2.blockNum_ && index_ == le2.index_);
 }
 
+void LedgerEntry::pprint(void)
+{
+   cout << "LedgerEntry: " << endl;
+   cout << "   Addr20  : " << getAddrStr20().toHexStr() << endl;
+   cout << "   Value   : " << getValue()/1e8 << endl;
+   cout << "   BlkNum  : " << getBlockNum() << endl;
+   cout << "   TxHash  : " << getTxHash().toHexStr() << endl;
+   cout << "   TxIndex : " << getIndex() << endl;
+   cout << "   isValid : " << (isValid() ? 1 : 0) << endl;
+   cout << "   sentSelf: " << (isSentToSelf() ? 1 : 0) << endl;
+   cout << "   isChange: " << (isChangeBack() ? 1 : 0) << endl;
+   cout << endl;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -155,14 +169,20 @@ BtcAddress::BtcAddress(BinaryData    addr,
 
 
 ////////////////////////////////////////////////////////////////////////////////
-uint64_t BtcAddress::getBalance(void)
+uint64_t BtcAddress::getBalance(set<OutPoint> const * lockedOPs)
 {
    uint64_t balance = 0;
    for(uint32_t i=0; i<relevantTxIOPtrs_.size(); i++)
    {
-      if(relevantTxIOPtrs_[i]->isUnspent() &&
-         relevantTxIOPtrs_[i]->getTxRefOfOutput().isMainBranch())
-         balance += relevantTxIOPtrs_[i]->getValue();
+      TxIOPair & txio = *relevantTxIOPtrs_[i];
+
+      // If this TxOut is locked, skip it
+      if(lockedOPs != NULL && 
+         lockedOPs->find(txio.getOutPoint()) != lockedOPs->end())
+            continue;
+
+      if(txio.isUnspent() && txio.getTxRefOfOutput().isMainBranch())
+         balance += txio.getValue();
    }
    return balance;
 }
@@ -255,8 +275,7 @@ void BtcWallet::addAddress_5_(BinaryData    addr,
 /////////////////////////////////////////////////////////////////////////////
 bool BtcWallet::hasAddr(BinaryData const & addr20)
 {
-   map<BinaryData, BtcAddress>::iterator addrIter = addrMap_.find(addr20);
-   return addrIter != addrMap_.end();
+   return addrMap_.find(addr20) != addrMap_.end();
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -275,20 +294,79 @@ void BtcWallet::scanTx(TxRef & tx,
    vector<bool> thisTxInIsOurs (tx.getNumTxIn(),  false);
    vector<bool> thisTxOutIsOurs(tx.getNumTxOut(), false);
 
-   ///// LOOP OVER ALL ADDRESSES ////
+   uint8_t const * txStartPtr = tx.getPtr();
+
+
+   ////////////////////////////////////////////////////////////////////////////
+   // START TX BULK FILTER
+   ////////////////////////////////////////////////////////////////////////////
+   // Since 99.999%+ of all transactions are not ours, let's do the 
+   // fastest bulk filter possible, even though it will add 
+   // redundant computation to the tx that are ours.  In fact,
+   // we will skip the TxInRef/TxOutRef convenience methods and follow the
+   // pointers directly the data we want
+   for(uint32_t iin=0; iin<tx.getNumTxIn(); iin++)
+   {
+      // We have the txin, now check if it contains one of our TxOuts
+      static OutPoint op;
+      op.unserialize(txStartPtr + tx.getTxInOffset(iin));
+      if(txioMap_.find(op) != txioMap_.end())
+         anyTxInIsOurs = true;
+   }
+
+   // TxOuts are a little more complicated, because we have to process each
+   // different type separately.  Nonetheless, 99% of transactions use the
+   // 25-byte repr which is ridiculously fast
+   for(uint32_t iout=0; iout<tx.getNumTxOut(); iout++)
+   {
+      static uint8_t scriptLenFirstByte;
+      static BinaryData addr20(20);
+
+      uint8_t const * ptr = (txStartPtr + tx.getTxOutOffset(iout) + 8);
+      scriptLenFirstByte = *(uint8_t*)ptr;
+      if(scriptLenFirstByte == 25)
+      {
+         // Std TxOut with 25-byte script
+         addr20.copyFrom(ptr+4, 20);
+         if( hasAddr(addr20) )
+            anyTxOutIsOurs = true;
+      }
+      else if(scriptLenFirstByte==67)
+      {
+         // Std spend-coinbase TxOut script
+         static BinaryData addr20(20);
+         BtcUtils::getHash160_NoSafetyCheck(ptr+2, 65, addr20);
+         if( hasAddr(addr20) )
+            anyTxOutIsOurs = true;
+      }
+      else
+      {
+         TxOutRef txout = tx.getTxOutRef(iout);
+         for(uint32_t i=0; i<addrPtrVect_.size(); i++)
+         {
+            BtcAddress & thisAddr = *(addrPtrVect_[i]);
+            BinaryData const & addr20 = thisAddr.getAddrStr20();
+            if(txout.getScriptRef().find(thisAddr.getAddrStr20()) > -1)
+               scanNonStdTx(blknum, txIndex, tx, iout, thisAddr);
+            continue;
+         }
+         break;
+      }
+   }
+
+   if( !anyTxOutIsOurs && !anyTxInIsOurs)
+      return;
+
+   ////////////////////////////////////////////////////////////////////////////
+   // END BULK FILTER
+   ////////////////////////////////////////////////////////////////////////////
+
+   // Remaining processing can be inefficient and it will
+   // be virtually irrelevant (but it's not *THAT* bad).
    for(uint32_t i=0; i<addrPtrVect_.size(); i++)
    {
       BtcAddress & thisAddr = *(addrPtrVect_[i]);
       BinaryData const & addr20 = thisAddr.getAddrStr20();
-
-      // If this block is before known addr creation time, no point in scanning
-      // If this block is before last addr seen time, already seen it!
-      // Added a week or 1000 blocks buffer to be safe, and make sure I don't
-      // discard a reorg block or some other silly boundary case
-      if(  blktime+(3600*24*7) < thisAddr.getLastTimestamp() ||
-           blknum+1000         < thisAddr.getLastBlockNum()           )
-         continue;  
-
 
       ///// LOOP OVER ALL TXIN IN BLOCK /////
       for(uint32_t iin=0; iin<tx.getNumTxIn(); iin++)
@@ -304,6 +382,10 @@ void BtcWallet::scanTx(TxRef & tx,
          if(txioIter != txioMap_.end())
          {
             TxIOPair & txio  = txioIter->second;
+            // If we scan multiple times, need to avoid multiple entries
+            if(txio.hasTxIn())
+               continue;
+
             TxOutRef const  & txout = txio.getTxOutRef();
             //if(!txio.hasTxIn() && txout.getRecipientAddr()==thisAddr.getAddrStr20())
             if(txout.getRecipientAddr()==thisAddr.getAddrStr20()  && 
@@ -418,19 +500,139 @@ void BtcWallet::scanTx(TxRef & tx,
 
    if(anyTxInIsOurs || anyTxOutIsOurs)
    {
-      txrefList_.push_back(&tx);
-      ledgerAllAddr_.push_back(LedgerEntry( BinaryData(0),
-                                            totalLedgerAmt, 
-                                            blknum, 
-                                            tx.getThisHash(), 
-                                            txIndex,
-                                            isSentToSelf,
-                                            isChangeBack));
+      // Without this conditional, we get multiple entries if we ever
+      // scan the same tx multiple times
+      if(txrefSet_.count(&tx) == 0)
+      {
+         txrefSet_.insert(&tx);
+         ledgerAllAddr_.push_back(LedgerEntry( BinaryData(0),
+                                               totalLedgerAmt, 
+                                               blknum, 
+                                               tx.getThisHash(), 
+                                               txIndex,
+                                               isSentToSelf,
+                                               isChangeBack));
+      }
 
    }
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+// This is kind of a hack:  I forgot the possibility that we might need
+// to do temporary scan of some Tx data without actually adding it to
+// the wallet yet (because we need to process zero-conf transactions,
+// but can't update the wallets until we have a verified blk number).
+// Perhaps this was an oversight to not design the wallets and Ledger
+// Entry objects to handle this situation, but for now we will leave
+// what's working alone, and outsource a solution to this method:
+//
+// (1)  Create a new wallet
+// (2)  Copy in all the addresses of this wallet
+// (3)  Run scanTx on all the zero-conf tx, using 0xffffffff for blknum
+// (4)  Return the combined ledger for the zero-conf addresses
+// (5)  Maintain this ledger separately in the calling calling code
+// (6)  Throw away this ledger whenever a new block is received, rescan
+vector<LedgerEntry> BtcWallet::getLedgerEntriesForZeroConfTxList(
+                                              vector<TxRef*> zcList)
+{
+   // Prepare fresh, temporary wallet with same addresses
+   BtcWallet tempWlt;
+   for(uint32_t i=0; i<addrPtrVect_.size(); i++)
+      tempWlt.addAddress( addrPtrVect_[i]->getAddrStr20() );
+
+   for(uint32_t i=0; i<zcList.size(); i++)
+      tempWlt.scanTx(*zcList[i], 0, 0xffffffff, 0xffffffff);
+
+   return tempWlt.ledgerAllAddr_;
+}
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Need to copy the TxIOMap (objects) to the new wallet, then update the child
+// addresses with pointers to the new TxIO objects, not the old ones.  This 
+// allows us to scan new transactions in a temporary wallet, without affecting
+// the original wallet
+void BtcWallet::makeTempCopyForZcScan(BtcWallet & tempWlt)
+{
+
+   tempWlt.txioMap_          = txioMap_;
+   tempWlt.unspentOutPoints_ = unspentOutPoints_;
+   tempWlt.lockedTxOuts_     = lockedTxOuts_;
+   tempWlt.orphanTxIns_      = orphanTxIns_;
+   tempWlt.txrefSet_         = txrefSet_;
+
+   tempWlt.nonStdTxioMap_    = nonStdTxioMap_;
+   tempWlt.nonStdUnspentOutPoints_ = nonStdUnspentOutPoints_;
+
+   // Need to copy the address objects, but with TxIOPair* to the temp-wlt TxIOs
+   for(uint32_t i=0; i<addrPtrVect_.size(); i++)
+   {
+      BtcAddress & origAddr = *addrPtrVect_[i];
+      tempWlt.addAddress( origAddr.getAddrStr20() );
+
+      vector<TxIOPair*> & origTxioList = origAddr.getTxIOList();
+      for(uint32_t j=0; j<origTxioList.size(); j++)
+      {
+         TxIOPair * txioPtr = origTxioList[j];
+         OutPoint op = txioPtr->getOutPoint();
+         BtcAddress & newAddr = tempWlt.getAddrByHash160(origAddr.getAddrStr20());
+         newAddr.addTxIO(tempWlt.txioMap_[op]);
+      }
+   }
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+// The above method didn't work... python memory management is weirder than 
+// I thought.  However, I know I can pass BinaryData in, and so I will just 
+// copy it locally and then I don't have to worry about memory mgmt.
+LedgerEntry BtcWallet::getWalletLedgerEntryForTx(BinaryData const & zcBin)
+{
+   // Prepare fresh, temporary wallet with same addresses
+   BtcWallet tempWlt;
+   makeTempCopyForZcScan(tempWlt);
+
+   BinaryData txBin(zcBin);
+   TxRef txref(txBin);
+   tempWlt.scanTx(txref, 0, 0xffffffff, 0xffffffff);
+
+   if(tempWlt.ledgerAllAddr_.size() > 0)
+      return tempWlt.ledgerAllAddr_[0];
+   else
+      return LedgerEntry();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// The above method didn't work... python memory management is weirder than 
+// I thought.  However, I know I can pass BinaryData in, and so I will just 
+// copy it locally and then I don't have to worry about memory mgmt.
+vector<LedgerEntry> BtcWallet::getAddrLedgerEntriesForTx(BinaryData const & zcBin)
+{
+   // Prepare fresh, temporary wallet with same addresses
+   BtcWallet tempWlt;
+   makeTempCopyForZcScan(tempWlt);
+
+   BinaryData txBin(zcBin);
+   TxRef txref(txBin);
+   tempWlt.scanTx(txref, 0, 0xffffffff, 0xffffffff);
+
+   vector<LedgerEntry> leVect(0);
+   for(uint32_t i=0; i<addrPtrVect_.size(); i++)
+   {
+      vector<LedgerEntry> & les = addrPtrVect_[i]->getTxLedger();
+      for(uint32_t j=0; j<les.size(); j++)
+      {
+         les[j].setAddr20(addrPtrVect_[i]->getAddrStr20());
+         leVect.push_back(les[j]);
+      }
+   }
+
+   return leVect;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Make a separate method here so we can get creative with how to handle these
@@ -495,8 +697,11 @@ uint64_t BtcWallet::getBalance(void)
         unspentIter++)
    {
       TxIOPair & txio = txioMap_[*unspentIter];
-      if(txio.getTxRefOfOutput().isMainBranch())
+      if(txio.getTxRefOfOutput().isMainBranch() && 
+         !isTxOutLocked(*unspentIter))
+      {
          balance += txioMap_[*unspentIter].getValue();
+      }
    }
    return balance;
 }
@@ -505,14 +710,14 @@ uint64_t BtcWallet::getBalance(void)
 ////////////////////////////////////////////////////////////////////////////////
 uint64_t BtcWallet::getBalance(uint32_t i)
 {
-   return addrPtrVect_[i]->getBalance();
+   return addrPtrVect_[i]->getBalance(&lockedTxOuts_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 uint64_t BtcWallet::getBalance(BinaryData const & addr20)
 {
    assert(hasAddr(addr20)); 
-   return addrMap_[addr20].getBalance();
+   return addrMap_[addr20].getBalance(&lockedTxOuts_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -539,6 +744,60 @@ void BtcWallet::sortLedger(void)
    sort(ledgerAllAddr_.begin(), ledgerAllAddr_.end());
 }
 
+////////////////////////////////////////////////////////////////////////////////
+void BtcWallet::lockTxOut(OutPoint const & op) 
+{
+   set<OutPoint> & unspentOps = getUnspentOutPoints();
+   if(unspentOps.find(op)!=unspentOps.end())
+      lockedTxOuts_.insert(op);  
+}
+
+////////////////////////////////////////////////////////////////////////////////
+void BtcWallet::unlockTxOut(OutPoint const & op) 
+{
+   set<OutPoint> & unspentOps = getUnspentOutPoints();
+   if(unspentOps.find(op)!=unspentOps.end())
+      if(lockedTxOuts_.find(op)!=lockedTxOuts_.end())
+         lockedTxOuts_.erase(op);  
+}
+
+
+void BtcWallet::lockTxOutSwig(BinaryData const & hash, uint32_t idx)
+{
+   OutPoint op(hash, idx);
+   lockTxOut(op);
+}
+void BtcWallet::unlockTxOutSwig(BinaryData const & hash, uint32_t idx)
+{
+   OutPoint op(hash, idx);
+   unlockTxOut(op);
+}
+
+bool BtcWallet::isTxOutLocked(OutPoint const & op) 
+{
+   return (lockedTxOuts_.find(op)!=lockedTxOuts_.end());
+}
+
+
+vector<OutPoint> BtcWallet::getLockedTxOutList(void)
+{
+   vector<OutPoint> out(0);
+   set<OutPoint>::iterator unspentIter;
+   for( unspentIter  = lockedTxOuts_.begin(); 
+        unspentIter != lockedTxOuts_.end(); 
+        unspentIter++)
+   {
+      out.push_back(*unspentIter);
+   }
+   return out;
+}
+
+bool BtcWallet::isOutPointMine(BinaryData const & hsh, uint32_t idx)
+{
+   OutPoint op(hsh, idx);
+   return (txioMap_.find(op)!=txioMap_.end());
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -556,7 +815,10 @@ BlockDataManager_FullRAM::BlockDataManager_FullRAM(void) :
       topBlockPtr_(NULL),
       genBlockPtr_(NULL),
       lastBlockWasReorg_(false),
-      isInitialized_(false)
+      isInitialized_(false),
+      GenesisHash_(0),
+      GenesisTxHash_(0),
+      MagicBytes_(0)
 {
    blockchainData_NEW_.clear();
    headerHashMap_.clear();
@@ -570,6 +832,49 @@ BlockDataManager_FullRAM::BlockDataManager_FullRAM(void) :
 }
 
 
+/////////////////////////////////////////////////////////////////////////////
+// We must set the network-specific data for this blockchain
+//
+// bdm.SetBtcNetworkParams( 
+//       BinaryData::CreateFromHex(MAINNET_GENESIS_HASH_HEX),
+//       BinaryData::CreateFromHex(MAINNET_GENESIS_TX_HASH_HEX),
+//       BinaryData::CreateFromHex(MAINNET_MAGIC_BYTES));
+//
+// The above call will work 
+void BlockDataManager_FullRAM::SetBtcNetworkParams(
+                                    BinaryData const & GenHash,
+                                    BinaryData const & GenTxHash,
+                                    BinaryData const & MagicBytes)
+{
+   GenesisHash_.copyFrom(GenHash);
+   GenesisTxHash_.copyFrom(GenTxHash);
+   MagicBytes_.copyFrom(MagicBytes);
+}
+
+
+void BlockDataManager_FullRAM::SelectNetwork(string netName)
+{
+   if(netName.compare("Main") == 0)
+   {
+      SetBtcNetworkParams( 
+         BinaryData::CreateFromHex(MAINNET_GENESIS_HASH_HEX),
+         BinaryData::CreateFromHex(MAINNET_GENESIS_TX_HASH_HEX),
+         BinaryData::CreateFromHex(MAINNET_MAGIC_BYTES));
+   }
+   else if(netName.compare("Test") == 0)
+   {
+      SetBtcNetworkParams( 
+         BinaryData::CreateFromHex(TESTNET_GENESIS_HASH_HEX),
+         BinaryData::CreateFromHex(TESTNET_GENESIS_TX_HASH_HEX),
+         BinaryData::CreateFromHex(TESTNET_MAGIC_BYTES));
+   }
+   else
+   {
+      cout << "ERROR: Unrecognized network name" << endl;
+      cerr << "ERROR: Unrecognized network name" << endl;
+   }
+      
+}
 
 /////////////////////////////////////////////////////////////////////////////
 // The only way to "create" a BDM is with this method, which creates it
@@ -666,7 +971,7 @@ BlockHeaderRef & BlockDataManager_FullRAM::getTopBlockHeader(void)
 BlockHeaderRef & BlockDataManager_FullRAM::getGenesisBlock(void) 
 {
    if(genBlockPtr_ == NULL)
-      genBlockPtr_ = &(headerHashMap_[BtcUtils::GenesisHash_]);
+      genBlockPtr_ = &(headerHashMap_[GenesisHash_]);
    return *genBlockPtr_;
 }
 
@@ -762,11 +1067,16 @@ vector<BinaryData> BlockDataManager_FullRAM::prefixSearchAddress(BinaryData cons
 
 /////////////////////////////////////////////////////////////////////////////
 // This is an intense search, using every tool we've created so far!
-void BlockDataManager_FullRAM::scanBlockchainForTx_FromScratch(BtcWallet & myWallet)
+void BlockDataManager_FullRAM::scanBlockchainForTx(BtcWallet & myWallet,
+                                                   uint32_t startBlknum,
+                                                   uint32_t endBlknum)
 {
-   PDEBUG("Scanning blockchain for tx, from scratch");
+   PDEBUG("Scanning blockchain for tx");
+
+   uint32_t nHeaders = headersByHeight_.size();
+   endBlknum = (endBlknum > nHeaders ? nHeaders : endBlknum);
    ///// LOOP OVER ALL HEADERS ////
-   for(uint32_t h=0; h<headersByHeight_.size(); h++)
+   for(uint32_t h=startBlknum; h<endBlknum; h++)
    {
       BlockHeaderRef & bhr = *(headersByHeight_[h]);
       vector<TxRef*> const & txlist = bhr.getTxRefPtrList();
@@ -783,11 +1093,16 @@ void BlockDataManager_FullRAM::scanBlockchainForTx_FromScratch(BtcWallet & myWal
 }
 
 /////////////////////////////////////////////////////////////////////////////
-void BlockDataManager_FullRAM::scanBlockchainForTx_FromScratch(vector<BtcWallet*> walletVect)
+void BlockDataManager_FullRAM::scanBlockchainForTx(vector<BtcWallet*> walletVect,
+                                                   uint32_t startBlknum,
+                                                   uint32_t endBlknum)
 {
    PDEBUG("Scanning blockchain for tx, from scratch");
+
+   uint32_t nHeaders = headersByHeight_.size();
+   endBlknum = (endBlknum > nHeaders ? nHeaders : endBlknum);
    ///// LOOP OVER ALL HEADERS ////
-   for(uint32_t h=0; h<headersByHeight_.size(); h++)
+   for(uint32_t h=startBlknum; h<endBlknum; h++)
    {
       BlockHeaderRef & bhr = *(headersByHeight_[h]);
       vector<TxRef*> const & txlist = bhr.getTxRefPtrList();
@@ -979,6 +1294,15 @@ uint32_t BlockDataManager_FullRAM::readBlkFile_FromScratch(string filename,
       return 0;
    }
 
+   if(GenesisHash_.getSize() == 0)
+   {
+      cout << "***ERROR:  Must set network params before loading blockchain!"
+           << endl;
+      cerr << "***ERROR:  Must set network params before loading blockchain!"
+           << endl;
+      return 0;
+   }
+
    PDEBUG("Read blkfile from scratch");
    blkfilePath_ = filename;
    cout << "Attempting to read blockchain from file: " << blkfilePath_.c_str() << endl;
@@ -1109,14 +1433,13 @@ uint32_t BlockDataManager_FullRAM::readBlkFileUpdate(void)
          if(!blockIsNewTop)
          {
             cout << "Block data did not extend the main chain!" << endl;
-            // TODO:  Not sure if there's anything we need to do if this block
-            //        didn't extend the main chain.
+            // TODO:  add anything extra to do here (is there anything?)
          }
    
          if(blockchainReorg)
          {
-            cout << "This block forced a reorg!  (and we're going to do nothing...)" << endl;
-            //TODO:  do something important (besides seg-faulting)
+            cout << "This block forced a reorg!  (and we're going to do nothing else...)" << endl;
+            // TODO:  add anything extra to do here (is there anything?)
          }
       }
       
@@ -1129,7 +1452,8 @@ uint32_t BlockDataManager_FullRAM::readBlkFileUpdate(void)
 
 
    // Finally, update the last known blkfile size and return nBlks added
-   PDEBUG2("Added new blocks to memory pool: ", nBlkRead);
+   //PDEBUG2("Added new blocks to memory pool: ", nBlkRead);
+   cout << "Added new blocks to memory pool: " << nBlkRead << endl;
    lastEOFByteLoc_ = filesize;
    return nBlkRead;
 }
@@ -1519,7 +1843,7 @@ bool BlockDataManager_FullRAM::organizeChain(bool forceRebuild)
    genBlock.isFinishedCalc_ = true;
    genBlock.isInitialized_  = true; 
    genBlock.txPtrList_      = vector<TxRef*>(1);
-   genBlock.txPtrList_[0]   = getTxByHash(BtcUtils::GenesisTxHash_);
+   genBlock.txPtrList_[0]   = getTxByHash(GenesisTxHash_);
    genBlock.txPtrList_[0]->setMainBranch(true);
    genBlock.txPtrList_[0]->setHeaderPtr(&genBlock);
 
@@ -1749,11 +2073,14 @@ BlockDataManager_FullRAM::getUnspentTxOutsForWallet( BtcWallet & wlt, int sortTy
        opIter != unspentOps.end();
        opIter++)
    {
-      TxRef & tx = *(getTxByHash(opIter->getTxHash()));
-      uint32_t currBlk = getTopBlockHeader().getBlockHeight();
-      TxOutRef txout = tx.getTxOutRef(opIter->getTxOutIndex());
-      UnspentTxOut uto(txout, currBlk);
-      result.push_back(uto);
+      if( !wlt.isTxOutLocked(*opIter) )
+      { 
+         TxRef & tx = *(getTxByHash(opIter->getTxHash()));
+         uint32_t currBlk = getTopBlockHeader().getBlockHeight();
+         TxOutRef txout = tx.getTxOutRef(opIter->getTxOutIndex());
+         UnspentTxOut uto(txout, currBlk);
+         result.push_back(uto);
+      }
    }
 
    if(sortType != -1)
@@ -1768,6 +2095,7 @@ BlockDataManager_FullRAM::getUnspentTxOutsForWallet( BtcWallet & wlt, int sortTy
 vector<UnspentTxOut> 
 BlockDataManager_FullRAM::getNonStdUnspentTxOutsForWallet( BtcWallet & wlt)
 {
+   cout << "Not implemented yet to retrieve non-std TxOuts..."<< endl;
    return vector<UnspentTxOut>(0);
 }
 
