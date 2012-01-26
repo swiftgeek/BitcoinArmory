@@ -24,6 +24,7 @@
 #include <string>
 #include <sstream>
 #include <assert.h>
+#include <cmath>
 
 #include "BinaryData.h"
 #include "cryptlib.h"
@@ -422,6 +423,25 @@ public:
       BinaryData hashOutput(20);
       getHash160(strToHash.getPtr(), strToHash.getSize(), hashOutput);
       return hashOutput;
+   }
+
+
+   /////////////////////////////////////////////////////////////////////////////
+   //  I need a non-static, non-overloaded method to be able to use this in SWIG
+   BinaryData getHash160_SWIG(BinaryData const & strToHash)
+   {
+      return getHash160(strToHash);
+   }
+
+   /////////////////////////////////////////////////////////////////////////////
+   //  I need a non-static, non-overloaded method to be able to use this in SWIG
+   BinaryData ripemd160_SWIG(BinaryData const & strToHash)
+   {
+      static CryptoPP::RIPEMD160 ripemd160_;
+      static BinaryData bd20(20);
+
+      ripemd160_.CalculateDigest(bd20.getPtr(), strToHash.getPtr(), strToHash.getSize());
+      return bd20;
    }
 
 
@@ -880,6 +900,40 @@ public:
       for(uint32_t i=0; i<oplist.size(); i++)
          cout << "   " << oplist[i] << endl;
    }
+
+
+   static bool verifyProofOfWork(BinaryDataRef bh80)
+   {
+      BinaryData theHash = getHash256(bh80);
+      return verifyProofOfWork(bh80, theHash.getRef());
+   }
+
+   static bool verifyProofOfWork(BinaryData bh80,
+                                 BinaryData const & theHash)
+   {
+      return verifyProofOfWork(bh80.getRef(), theHash.getRef());
+   }
+
+
+   static bool verifyProofOfWork(BinaryDataRef bh80, BinaryDataRef bhrHash)
+   {
+      // This is only approximate.  I can put in an exact verifier once 
+      // I figure out big integers better in C++, or another way to do
+      // the calculation.  I just want to make sure this isn't a completely
+      // bogus proof of work.
+      double diff = convertDiffBitsToDouble( BinaryDataRef(bh80.getPtr()+72, 4) );
+      double diffFactor = diff * (double)UINT32_MAX;
+      double nZeroBits  = int( log(diffFactor) / log(2.0));
+      int    nZeroBytes = int( log(diffFactor) / log(2.0) / 8.0);
+
+      // TODO: check that I'm comparing the correct end of the hash
+      for(uint32_t i=0; i<nZeroBytes; i++)
+         if(bhrHash[31-i]!=0)
+            return false;
+
+      return true;
+   }
+
 };
    
    
